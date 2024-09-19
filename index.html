@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FDU-医学图像标注平台 v1.0</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #1e1e1e;
+            color: #ffffff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            height: 100vh;
+            padding-top: 80px; /* 为了避免遮挡，增加顶部的空白 */
+        }
+
+        h2 {
+            color: #66ccff;
+        }
+
+        canvas {
+            border: 2px solid #66ccff;
+            background-color: #ffffff;
+            margin-top: 20px;
+        }
+
+        button {
+            background-color: #007acc;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 16px;
+            margin: 10px 5px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: #005999;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        label {
+            background-color: #007acc;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        label:hover {
+            background-color: #005999;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            gap: 10px;
+            position: fixed; /* 固定按钮位置 */
+            top: 0; /* 在页面顶部 */
+            width: 100%; /* 占据整个页面的宽度 */
+            background-color: #1e1e1e; /* 背景颜色与页面一致 */
+            z-index: 1000; /* 确保其显示在最前面 */
+            padding: 10px;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2); /* 添加阴影效果 */
+        }
+
+    </style>
+</head>
+<body>
+    <h2>FDU-医学图像标注平台 v1.0</h2>
+    <label for="upload">上传图片</label>
+    <input type="file" id="upload" accept="image/*">
+    <div class="controls">
+        <button id="new_curve">封闭当前轮廓并开始下一个轮廓</button>
+        <button id="undo">撤销上一步</button>
+        <button id="save">保存坐标文件到本地</button>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const upload = document.getElementById('upload');
+        let currentPoints = [];  // 当前曲线的点
+        let allCurves = [];  // 保存所有曲线
+        let image = null;  // 保存图像
+        let imageName = '';  // 保存图片名称
+        let drawing = false;  // 标识是否正在绘制
+
+        // 加载图像
+        upload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            imageName = file.name.split('.')[0];  // 获取图片名称并去掉扩展名
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                image = new Image();
+                image.onload = () => {
+                    // 检查图像大小是否大于1000x1000
+                    if (image.width > 1000 || image.height > 1000) {
+                        alert("上传的图片过大，图像尺寸必须小于1000x1000像素");
+                        return;
+                    }
+
+                    canvas.width = image.width;
+                    canvas.height = image.height;
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);  // 清除之前的绘制
+                    currentPoints = [];  // 清除当前点
+                    allCurves = [];  // 清除所有曲线
+                    ctx.drawImage(image, 0, 0);  // 绘制新图片
+                };
+                image.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // 鼠标按下时开始绘制
+        canvas.addEventListener('mousedown', (event) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            currentPoints.push({ x, y });  // 记录起点
+            drawing = true;  // 开始绘制
+        });
+
+        // 鼠标移动时，持续绘制
+        canvas.addEventListener('mousemove', (event) => {
+            if (!drawing) return;  // 仅当按住鼠标左键时才绘制
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+            currentPoints.push({ x, y });  // 记录路径上的点
+            drawCurrentCurve();  // 绘制当前曲线
+        });
+
+        // 鼠标松开时，结束绘制
+        canvas.addEventListener('mouseup', () => {
+            drawing = false;  // 停止绘制
+        });
+
+        // 完成当前曲线，开始新的曲线
+        document.getElementById('new_curve').addEventListener('click', () => {
+            if (currentPoints.length > 0) {
+                allCurves.push(currentPoints);  // 将当前曲线保存
+                currentPoints = [];  // 清除当前点，准备新曲线
+                drawCurrentCurve();
+            }
+        });
+
+        // 撤销上一步
+        document.getElementById('undo').addEventListener('click', () => {
+            if (currentPoints.length > 0) {
+                currentPoints.pop();  // 移除当前曲线的最后一个点
+            } else if (allCurves.length > 0) {
+                allCurves.pop();  // 如果当前曲线为空，撤销最后一条完整曲线
+            }
+            drawCurrentCurve();  // 重新绘制
+        });
+
+        // 保存所有曲线为TXT文件
+        document.getElementById('save').addEventListener('click', () => {
+            if (allCurves.length > 0 || currentPoints.length > 0) {
+                if (currentPoints.length > 0) {
+                    allCurves.push(currentPoints);  // 保存最后一个未完成的曲线
+                }
+                const lines = allCurves.map(curve => curve.map(point => `(${point.x}, ${point.y})`).join(' '));
+                const fileContent = lines.join('\n');  // 每个曲线一行
+
+                const blob = new Blob([fileContent], { type: 'text/plain' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${imageName}.txt`;  // 使用图片名称作为文件名
+                link.click();
+            }
+        });
+
+        // 绘制当前曲线（贝塞尔曲线）
+        function drawCurrentCurve() {
+            if (!image) return;  // 确保有图像
+            ctx.clearRect(0, 0, canvas.width, canvas.height);  // 清除画布
+            ctx.drawImage(image, 0, 0);  // 重新绘制图像
+
+            // 绘制之前的所有曲线
+            allCurves.forEach(curve => {
+                if (curve.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(curve[0].x, curve[0].y);
+                    for (let i = 1; i < curve.length - 1; i++) {
+                        const midX = (curve[i].x + curve[i + 1].x) / 2;
+                        const midY = (curve[i].y + curve[i + 1].y) / 2;
+                        ctx.quadraticCurveTo(curve[i].x, curve[i].y, midX, midY);
+                    }
+                    ctx.closePath();  // 封闭曲线
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            });
+
+            // 绘制当前正在绘制的曲线
+            if (currentPoints.length > 1) {
+                ctx.beginPath();
+                ctx.moveTo(currentPoints[0].x, currentPoints[0].y);
+                for (let i = 1; i < currentPoints.length - 1; i++) {
+                    const midX = (currentPoints[i].x + currentPoints[i + 1].x) / 2;
+                    const midY = (currentPoints[i].y + currentPoints[i + 1].y) / 2;
+                    ctx.quadraticCurveTo(currentPoints[i].x, currentPoints[i].y, midX, midY);
+                }
+                ctx.closePath();  // 封闭曲线
+                ctx.strokeStyle = 'blue';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            // 绘制点
+            currentPoints.forEach(point => {
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 3, 0, Math.PI * 2, true);  // 小圆点
+                ctx.fillStyle = 'blue';
+                ctx.fill();
+            });
+        }
+    </script>
+</body>
+</html>
