@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: 'Arial', sans-serif;
-            background-color: #1e1e1e;
+            background-color: #f4f4f5;
             color: #ffffff;
             display: flex;
             flex-direction: column;
@@ -15,22 +15,27 @@
             justify-content: flex-start;
             height: 100vh;
             padding-top: 80px; /* 为了避免遮挡，增加顶部的空白 */
+            margin: 0;
         }
 
         h2 {
-            color: #66ccff;
+            color: #2f78aa;
+            font-size: 36px;
         }
 
         canvas {
             border: 2px solid #66ccff;
             background-color: #ffffff;
             margin-top: 20px;
+            width: 1000px; /* 固定宽度为1000像素 */
+            height: 1000px; /* 固定高度为1000像素 */
         }
 
         button {
-            background-color: #007acc;
+            background-color: #f4f4f5;
+            color: #2f78aa;
             border: none;
-            color: white;
+            color: #2f78aa;
             padding: 10px 20px;
             text-align: center;
             text-decoration: none;
@@ -73,10 +78,43 @@
             position: fixed; /* 固定按钮位置 */
             top: 0; /* 在页面顶部 */
             width: 100%; /* 占据整个页面的宽度 */
-            background-color: #1e1e1e; /* 背景颜色与页面一致 */
+            background-color: #2f78aa; /* 背景颜色与页面一致 */
+            color: #2f78aa
             z-index: 1000; /* 确保其显示在最前面 */
             padding: 10px;
             box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.2); /* 添加阴影效果 */
+        }
+
+        .type-input-container {
+            display: flex;
+            align-items: center;
+            color: #2f78aa;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .type-input {
+            padding: 8px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #007acc;
+        }
+
+        /* 固定在底部的联系模块 */
+        .footer {
+
+                    bottom: 0;
+                    width: 100%;
+
+                    height: 60px; /* 固定高度，具体值可根据需要调整 */
+                    background-color: #2f78aa;
+                    color: #1e1e1e;
+                    text-align: center;
+                    padding: 5px; /* 增加填充让内容看起来更宽敞 */
+
+                    box-shadow: 0px -4px 6px rgba(0, 0, 0, 0.2); /* 添加阴影效果 */
+                    font-size: 14px; /* 适当调大字体 */
+                    line-height: 1.2; /* 增加行高以提高可读性 */
         }
 
     </style>
@@ -85,17 +123,33 @@
     <h2>FDU-医学图像标注平台 v1.0</h2>
     <label for="upload">上传图片</label>
     <input type="file" id="upload" accept="image/*">
+
+    <!-- 输入框和轮廓类型标签 -->
+    <div class="type-input-container">
+        <span>轮廓类型</span> <!-- 添加文本标识 -->
+        <input type="text" id="contourType" class="type-input" placeholder="轮廓类型" value="TLS">
+    </div>
+    
     <div class="controls">
         <button id="new_curve">封闭当前轮廓并开始下一个轮廓</button>
         <button id="undo">撤销上一步</button>
-        <button id="save">保存坐标文件到本地</button>
+        <button id="save">保存坐标文件及标注图像</button>
     </div>
     <canvas id="canvas"></canvas>
+
+    <!-- 底部固定的联系信息模块 -->
+    <div class="footer">
+        Correspondence: Dr. Jian Gao <br>
+        Departments of Thoracic Surgery <br>
+        Fudan University Shanghai Cancer Center, Shanghai, China.<br>
+        Email:gaojian8977@gmail.com
+    </div>
 
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const upload = document.getElementById('upload');
+        const contourTypeInput = document.getElementById('contourType'); // 获取轮廓类型输入框
         let currentPoints = [];  // 当前曲线的点
         let allCurves = [];  // 保存所有曲线
         let image = null;  // 保存图像
@@ -123,9 +177,9 @@
                     allCurves = [];  // 清除所有曲线
                     ctx.drawImage(image, 0, 0);  // 绘制新图片
                 };
-                image.src = e.target.result;
+                image.src = e.target.result;  // 只有在加载完FileReader之后，才设置图像的src
             };
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(file);  // 开始读取文件
         });
 
         // 鼠标按下时开始绘制
@@ -171,8 +225,12 @@
             drawCurrentCurve();  // 重新绘制
         });
 
-        // 保存所有曲线为TXT文件
+        // 保存所有曲线为TXT文件并保存标注图像
         document.getElementById('save').addEventListener('click', () => {
+            const contourType = contourTypeInput.value || "TLS";  // 获取轮廓类型
+            const combinedImageName = `${imageName}_${contourType}`;  // 生成新文件名
+
+            // 保存坐标文件
             if (allCurves.length > 0 || currentPoints.length > 0) {
                 if (currentPoints.length > 0) {
                     allCurves.push(currentPoints);  // 保存最后一个未完成的曲线
@@ -183,10 +241,51 @@
                 const blob = new Blob([fileContent], { type: 'text/plain' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                link.download = `${imageName}.txt`;  // 使用图片名称作为文件名
+                link.download = `${combinedImageName}.txt`;  // 使用图片名称和轮廓类型作为文件名
                 link.click();
             }
+
+            // 保存标注的图像
+            saveAnnotatedImage(combinedImageName);
         });
+
+        // 保存包含轮廓的图像
+        function saveAnnotatedImage(fileName) {
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // 设置临时画布的大小与原始图片相同
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+
+            // 绘制原始图片
+            tempCtx.drawImage(image, 0, 0);
+
+            // 绘制轮廓
+            allCurves.forEach(curve => {
+                if (curve.length > 1) {
+                    tempCtx.beginPath();
+                    tempCtx.moveTo(curve[0].x, curve[0].y);
+                    for (let i = 1; i < curve.length - 1; i++) {
+                        const midX = (curve[i].x + curve[i + 1].x) / 2;
+                        const midY = (curve[i].y + curve[i + 1].y) / 2;
+                        tempCtx.quadraticCurveTo(curve[i].x, curve[i].y, midX, midY);
+                    }
+                    tempCtx.closePath();
+                    tempCtx.strokeStyle = 'red';
+                    tempCtx.lineWidth = 2;
+                    tempCtx.stroke();
+                }
+            });
+
+            // 将标注图片保存到本地
+            tempCanvas.toBlob(function(blob) {
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `${fileName}.png`;
+                link.click();
+            });
+        }
 
         // 绘制当前曲线（贝塞尔曲线）
         function drawCurrentCurve() {
