@@ -1,2 +1,2 @@
-# image_labeling
-medical_image_labeling
+# FUMIAP
+Fudan University Medical Image Annotation Platform
