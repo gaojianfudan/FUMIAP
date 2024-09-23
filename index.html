@@ -147,12 +147,10 @@
     <label for="upload">上传图片</label>
     <input type="file" id="upload" accept="image/*">
 
-    <!-- 输入框和轮廓类型标签 -->
     <div class="type-input-container">
-        <span>轮廓类型</span> <!-- 添加文本标识 -->
+        <span>轮廓类型</span>
         <input type="text" id="contourType" class="type-input" placeholder="轮廓类型" value="TLS">
 
-        <!-- 增加颜色选择模块 -->
         <span>选择轮廓颜色</span>
         <input type="color" id="contourColor" class="color-input" value="#0000ff">
     </div>
@@ -167,7 +165,6 @@
     </div>
     <canvas id="canvas"></canvas>
 
-    <!-- 底部固定的联系信息模块 -->
     <div class="footer">
         Correspondence: <br>
         Dr. Jian Gao <br>
@@ -181,15 +178,17 @@
         const ctx = canvas.getContext('2d');
         const upload = document.getElementById('upload');
         const contourTypeInput = document.getElementById('contourType');
-        const contourColorInput = document.getElementById('contourColor'); // 获取颜色选择器
-        let currentPoints = [];  // 当前曲线的点
-        let allCurves = [];  // 保存所有曲线
-        let image = null;  // 保存图像
-        let imageName = '';  // 保存图片名称
-        let drawing = false;  // 标识是否正在绘制
-        let contourColor = contourColorInput.value;  // 保存选择的轮廓颜色
+        const contourColorInput = document.getElementById('contourColor');
+        let currentPoints = [];  
+        let allCurves = [];  
+        let image = null;
+        let imageName = '';  
+        let drawing = false;
+        let contourColor = contourColorInput.value;
+        let originalWidth = 0;  
+        let originalHeight = 0; 
+        let scale = 1; 
 
-        // 当颜色改变时，更新轮廓颜色
         contourColorInput.addEventListener('input', (event) => {
             contourColor = event.target.value;
         });
@@ -202,17 +201,20 @@
             reader.onload = (e) => {
                 image = new Image();
                 image.onload = () => {
-                    if (image.width > 1000 || image.height > 1000) {
-                        alert("上传的图片过大，图像尺寸必须小于1000x1000像素");
-                        return;
-                    }
+                    originalWidth = image.width;
+                    originalHeight = image.height;
 
-                    canvas.width = image.width;
-                    canvas.height = image.height;
+                    // 缩放到宽度为 1000，保持纵横比
+                    scale = 1000 / image.width;
+                    const newHeight = image.height * scale;
+
+                    canvas.width = 1000;
+                    canvas.height = newHeight;
+
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     currentPoints = [];
                     allCurves = [];
-                    ctx.drawImage(image, 0, 0);
+                    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);  // 缩放显示
                 };
                 image.src = e.target.result;
             };
@@ -256,43 +258,76 @@
             }
             drawCurrentCurve();
         });
-
+        
         document.getElementById('save').addEventListener('click', () => {
             const contourType = contourTypeInput.value || "TLS";
             const combinedImageName = `${imageName}_${contourType}`;
-
+        
+            // 创建 GeoJSON 数据结构
+            let geojson = {
+                type: "FeatureCollection",
+                features: []
+            };
+        
             if (allCurves.length > 0 || currentPoints.length > 0) {
                 if (currentPoints.length > 0) {
                     allCurves.push({ points: currentPoints, color: contourColor });
                 }
-                const lines = allCurves.map(curve => curve.points.map(point => `(${point.x}, ${point.y})`).join(' '));
-                const fileContent = lines.join('\n');
-
-                const blob = new Blob([fileContent], { type: 'text/plain' });
+        
+                // 将每个曲线转换为 GeoJSON Feature
+                allCurves.forEach(curve => {
+                    const coordinates = curve.points.map(point => [
+                        Math.round(point.x / scale),  // 转换为原始图像的 X 坐标
+                        Math.round(point.y / scale)   // 转换为原始图像的 Y 坐标
+                    ]);
+        
+                    // 创建一个新的 Feature
+                    const feature = {
+                        type: "Feature",
+                        properties: {
+                            color: curve.color,
+                            contourType: contourType
+                        },
+                        geometry: {
+                            type: "LineString", // 如果是闭合的轮廓可以改为 "Polygon"
+                            coordinates: coordinates
+                        }
+                    };
+        
+                    // 添加到 FeatureCollection 中
+                    geojson.features.push(feature);
+                });
+        
+                // 将 GeoJSON 转换为不带多余换行符的字符串并下载
+                const geojsonString = JSON.stringify(geojson);  // 去掉格式化的第二个参数，确保没有换行符
+                const blob = new Blob([geojsonString], { type: 'application/json' });
                 const link = document.createElement('a');
                 link.href = URL.createObjectURL(blob);
-                link.download = `${combinedImageName}.txt`;
+                link.download = `${combinedImageName}.geojson`;
                 link.click();
             }
-
+        
             saveAnnotatedImage(combinedImageName);
         });
+
+
+
 
         function saveAnnotatedImage(fileName) {
             const tempCanvas = document.createElement('canvas');
             const tempCtx = tempCanvas.getContext('2d');
-            tempCanvas.width = canvas.width;
-            tempCanvas.height = canvas.height;
-            tempCtx.drawImage(image, 0, 0);
+            tempCanvas.width = originalWidth;
+            tempCanvas.height = originalHeight;
+            tempCtx.drawImage(image, 0, 0, originalWidth, originalHeight);  // 在原始大小的画布上绘制图像
 
             allCurves.forEach(curve => {
                 if (curve.points.length > 1) {
                     tempCtx.beginPath();
-                    tempCtx.moveTo(curve.points[0].x, curve.points[0].y);
+                    tempCtx.moveTo(curve.points[0].x / scale, curve.points[0].y / scale);
                     for (let i = 1; i < curve.points.length - 1; i++) {
-                        const midX = (curve.points[i].x + curve.points[i + 1].x) / 2;
-                        const midY = (curve.points[i].y + curve.points[i + 1].y) / 2;
-                        tempCtx.quadraticCurveTo(curve.points[i].x, curve.points[i].y, midX, midY);
+                        const midX = (curve.points[i].x + curve.points[i + 1].x) / 2 / scale;
+                        const midY = (curve.points[i].y + curve.points[i + 1].y) / 2 / scale;
+                        tempCtx.quadraticCurveTo(curve.points[i].x / scale, curve.points[i].y / scale, midX, midY);
                     }
                     tempCtx.closePath();
                     tempCtx.strokeStyle = curve.color;
@@ -312,7 +347,7 @@
         function drawCurrentCurve() {
             if (!image) return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(image, 0, 0);
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);  // 按缩放比例绘制
 
             allCurves.forEach(curve => {
                 if (curve.points.length > 1) {
