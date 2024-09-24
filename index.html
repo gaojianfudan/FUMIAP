@@ -381,7 +381,7 @@
 
             currentPoints.forEach(point => {
                 ctx.beginPath();
-                ctx.arc(point.x, point.y, 3, 0, Math.PI * 2, true);
+                ctx.arc(point.x, point.y, 1, 0, Math.PI * 2, true);
                 ctx.fillStyle = contourColor;
                 ctx.fill();
             });
